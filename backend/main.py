@@ -1,6 +1,7 @@
 import os
 import shutil
 import traceback
+import re
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -29,6 +30,17 @@ SCORE_THRESHOLD = 1.0
 TOP_K = 5
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def get_session_paths(session_id: str, create=True):
+    if not session_id or not re.match(r"^[a-zA-Z0-9_\-]+$", session_id):
+        return UPLOAD_FOLDER, PERSIST_DIR
+    
+    session_upload_folder = os.path.join(UPLOAD_FOLDER, session_id)
+    session_persist_dir = os.path.join(PERSIST_DIR, session_id)
+    if create:
+        os.makedirs(session_upload_folder, exist_ok=True)
+        os.makedirs(session_persist_dir, exist_ok=True)
+    return session_upload_folder, session_persist_dir
 
 allowed_origins = [
     "http://localhost:5173",
@@ -90,25 +102,29 @@ def home():
     return {"message": "RAG Backend Running"}
 
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(
+    file: UploadFile = File(...),
+    session_id: str = Query(None, description="Unique session ID for client isolation")
+):
     try:
-        print("1 Upload started")
+        print(f"1 Upload started (session: {session_id})")
         if not file.filename.lower().endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
         safe_filename = os.path.basename(file.filename)
+        session_upload_folder, session_persist_dir = get_session_paths(session_id)
 
-        if os.path.exists(PERSIST_DIR):
+        if os.path.exists(session_persist_dir):
             try:
                 import chromadb
-                client = chromadb.PersistentClient(path=PERSIST_DIR)
+                client = chromadb.PersistentClient(path=session_persist_dir)
                 for col in client.list_collections():
                     client.delete_collection(col.name)
             except Exception as e:
-                print(f"Error resetting database collections: {e}")
+                print(f"Error resetting database collections for session {session_id}: {e}")
 
         print("2 Saving file")
-        file_path = os.path.join(UPLOAD_FOLDER, safe_filename)
+        file_path = os.path.join(session_upload_folder, safe_filename)
 
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -129,7 +145,7 @@ async def upload_pdf(file: UploadFile = File(...)):
             )
 
         print("6 Creating vectorstore")
-        create_vectorstore(processed_documents)
+        create_vectorstore(processed_documents, persist_directory=session_persist_dir)
 
         print("7 Done")
         return {
@@ -144,7 +160,10 @@ async def upload_pdf(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Failed to process PDF")
 
 @app.post("/chat")
-async def chat(question: str = Query(..., description="The question to ask")):
+async def chat(
+    question: str = Query(..., description="The question to ask"),
+    session_id: str = Query(None, description="Unique session ID for client isolation")
+):
     question = question.strip()
     if not question:
         raise HTTPException(
@@ -152,14 +171,16 @@ async def chat(question: str = Query(..., description="The question to ask")):
             detail="Question cannot be empty",
         )
 
-    if not os.path.exists(PERSIST_DIR):
+    _, session_persist_dir = get_session_paths(session_id, create=False)
+
+    if not os.path.exists(session_persist_dir) or not os.listdir(session_persist_dir):
         raise HTTPException(
             status_code=400,
             detail="No document has been ingested yet. Upload a PDF first.",
         )
 
     vectorstore = Chroma(
-        persist_directory=PERSIST_DIR,
+        persist_directory=session_persist_dir,
         embedding_function=get_embeddings(),
     )
 
@@ -176,7 +197,11 @@ async def chat(question: str = Query(..., description="The question to ask")):
         print(f"\nChunk {i}")
         print(f"Distance: {score:.4f}")
         print("-" * 40)
-        print(doc.page_content[:300])
+        content_to_print = doc.page_content[:300]
+        try:
+            print(content_to_print)
+        except UnicodeEncodeError:
+            print(content_to_print.encode('ascii', errors='replace').decode('ascii'))
         print("-" * 40)
 
     if not results_with_scores:
@@ -238,7 +263,10 @@ ANSWER:
     print("=" * 80)
     print("Prompt Sent To LLM")
     print("=" * 80)
-    print(prompt)
+    try:
+        print(prompt)
+    except UnicodeEncodeError:
+        print(prompt.encode('ascii', errors='replace').decode('ascii'))
     print("=" * 80)
 
     response = get_llm().invoke(prompt)

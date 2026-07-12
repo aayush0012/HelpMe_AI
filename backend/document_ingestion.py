@@ -152,7 +152,7 @@ def make_doc_id(doc: Document) -> str:
     key = f"{doc.metadata.get('source')}::chunk_{doc.metadata.get('chunk_index')}::{doc.page_content}"
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
-def create_vectorstore(documents):
+def create_vectorstore(documents, persist_directory=None):
     hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
     if not hf_token:
         print("Warning: HUGGINGFACEHUB_API_TOKEN is not set. Cloud embedding calls might fail.")
@@ -162,8 +162,11 @@ def create_vectorstore(documents):
         huggingfacehub_api_token=hf_token
     )
 
+    if persist_directory is None:
+        persist_directory = PERSIST_DIR
+
     vectorstore = Chroma(
-        persist_directory=PERSIST_DIR,
+        persist_directory=persist_directory,
         embedding_function=embeddings,
     )
 

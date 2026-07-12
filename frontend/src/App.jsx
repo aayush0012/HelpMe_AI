@@ -4,6 +4,19 @@ import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "https://help-me-zdr2.onrender.com");
 
+const getSessionId = () => {
+  let sessionId = sessionStorage.getItem("helpme_session_id");
+  if (!sessionId) {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      sessionId = crypto.randomUUID();
+    } else {
+      sessionId = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    }
+    sessionStorage.setItem("helpme_session_id", sessionId);
+  }
+  return sessionId;
+};
+
 function App() {
   const [showLanding, setShowLanding] = useState(true);
   const [file, setFile] = useState(null);
@@ -36,7 +49,8 @@ function App() {
     formData.append("file", file);
 
     try {
-      const response = await axios.post(`${API_BASE}/upload`, formData);
+      const sessionId = getSessionId();
+      const response = await axios.post(`${API_BASE}/upload?session_id=${sessionId}`, formData);
       setMessage(response.data.message);
     } catch (err) {
       console.log(err);
@@ -63,8 +77,9 @@ function App() {
     setThinking(true);
 
     try {
+      const sessionId = getSessionId();
       const response = await axios.post(
-        `${API_BASE}/chat?question=${encodeURIComponent(question)}`
+        `${API_BASE}/chat?question=${encodeURIComponent(question)}&session_id=${sessionId}`
       );
       setThinking(false);
       setMessages((prev) => [
