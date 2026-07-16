@@ -85,7 +85,8 @@ class StudyAgent:
         context = "\n\n".join([f"Document {i}:\n{d.page_content}" for i, d in enumerate(docs, 1)])
         
         prompt = f"""
-You are an academic grader evaluating if the provided document context contains information relevant to answer the question.
+You are an academic grader evaluating if the provided document context is relevant to the question.
+If the question is asking to analyze, summarize, evaluate, or critique the document context itself (like a resume, essay, or study notes), the context is highly relevant.
 
 CONTEXT:
 {context}
@@ -93,8 +94,7 @@ CONTEXT:
 QUESTION:
 {question}
 
-Does the CONTEXT contain enough relevant information to answer the QUESTION?
-Respond with exactly one word: 'yes' or 'no'.
+Is this CONTEXT relevant to the QUESTION? Respond with exactly one word: 'yes' or 'no'.
 Do not include any other text, explanation, or punctuation.
 """
         try:
@@ -239,7 +239,7 @@ ANSWER:
         context = "\n\n".join([d.page_content for d in docs])
         
         prompt = f"""
-You are an academic evaluator checking for hallucinations.
+You are an academic evaluator checking for hallucinations and fact conflicts.
 
 SUPPORTING CONTEXT:
 {context}
@@ -247,8 +247,9 @@ SUPPORTING CONTEXT:
 GENERATED ANSWER:
 {generation}
 
-Is the GENERATED ANSWER fully grounded in and supported by the SUPPORTING CONTEXT?
-Respond with exactly 'yes' or 'no'.
+Is the GENERATED ANSWER consistent with and supported by the SUPPORTING CONTEXT?
+Respond with 'yes' if the answer is grounded and does not fabricate fake facts (like claiming skills, achievements, or titles not in the context).
+Respond with 'no' if the answer contains fabricated facts or directly contradicts the context.
 Do not write any explanation, introduction, or punctuation.
 """
         try:
