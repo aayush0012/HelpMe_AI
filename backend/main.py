@@ -14,6 +14,7 @@ from document_ingestion import (
     process_chunks,
     create_vectorstore,
 )
+from hybrid_retrieval import hybrid_retrieve
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from dotenv import load_dotenv
@@ -184,7 +185,8 @@ async def chat(
         embedding_function=get_embeddings(),
     )
 
-    results_with_scores = vectorstore.similarity_search_with_score(
+    results_with_scores = hybrid_retrieve(
+        vectorstore,
         question,
         k=TOP_K,
     )

@@ -2,6 +2,7 @@ import os
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from langchain_groq import ChatGroq
+from hybrid_retrieval import hybrid_retrieve
 
 TOP_K = 5
 
@@ -20,7 +21,7 @@ def load_vectorstore():
     return vectorstore
 
 def retrieve_chunks(vectorstore, query, k=TOP_K):
-    results = vectorstore.similarity_search_with_score(query, k=k)
+    results = hybrid_retrieve(vectorstore, query, k=k)
 
     print("=" * 80)
     print("Retrieved Chunks")
