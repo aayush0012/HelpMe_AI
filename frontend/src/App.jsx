@@ -4,6 +4,67 @@ import "./App.css";
 
 const API_BASE = import.meta.env.VITE_API_BASE || (import.meta.env.DEV ? "http://127.0.0.1:8000" : "https://help-me-zdr2.onrender.com");
 
+const renderBold = (text) => {
+  if (!text) return "";
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("**") && part.endsWith("**")) {
+      return <strong key={index}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+};
+
+const renderMarkdown = (text) => {
+  if (!text) return null;
+  
+  // Clean up inline citations like [Source 1], [Source 1, Source 2], etc.
+  const cleanedText = text.replace(/\[Source\s+\d+(?:,\s*Source\s+\d+)*\]/gi, "");
+
+  const lines = cleanedText.split("\n");
+  return lines.map((line, idx) => {
+    let content = line;
+    
+    // Check if it's a heading
+    if (content.startsWith("### ")) {
+      return <h4 key={idx} style={{ marginTop: "10px", marginBottom: "6px", fontWeight: "700" }}>{renderBold(content.replace("### ", ""))}</h4>;
+    }
+    if (content.startsWith("## ")) {
+      return <h3 key={idx} style={{ marginTop: "12px", marginBottom: "8px", fontWeight: "700" }}>{renderBold(content.replace("## ", ""))}</h3>;
+    }
+    
+    // Check if it's a bullet point
+    if (content.trim().startsWith("- ") || content.trim().startsWith("* ")) {
+      const bulletText = content.replace(/^[\s]*[-*]\s+/, "");
+      return (
+        <li key={idx} className="markdown-bullet" style={{ marginLeft: "18px", marginBottom: "4px" }}>
+          {renderBold(bulletText)}
+        </li>
+      );
+    }
+    
+    // Check if it's a numbered list
+    if (/^\d+\.\s+/.test(content.trim())) {
+      const listText = content.replace(/^[\s]*\d+\.\s+/, "");
+      const numMatch = content.match(/^\s*(\d+)/);
+      const num = numMatch ? numMatch[1] : "1";
+      return (
+        <div key={idx} className="markdown-list-item" style={{ display: "flex", gap: "6px", marginBottom: "4px" }}>
+          <span style={{ fontWeight: "bold" }}>{num}.</span>
+          <span>{renderBold(listText)}</span>
+        </div>
+      );
+    }
+    
+    // Standard paragraph or empty line
+    if (!content.trim()) {
+      return <div key={idx} style={{ height: "6px" }} />;
+    }
+    
+    return <p key={idx} style={{ marginBottom: "6px", lineHeight: "1.4" }}>{renderBold(content)}</p>;
+  });
+};
+
 const getSessionId = () => {
   let sessionId = sessionStorage.getItem("helpme_session_id");
   if (!sessionId) {
@@ -220,7 +281,7 @@ function App() {
             >
               <div className="chat-bubble-group">
                 <div className="chat-bubble">
-                  <div className="chat-text">{msg.text}</div>
+                  <div className="chat-text">{renderMarkdown(msg.text)}</div>
                 </div>
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="sources-wrapper">

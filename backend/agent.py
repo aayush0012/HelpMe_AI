@@ -188,7 +188,7 @@ Do not include any other text, explanation, or punctuation.
             title = doc.metadata.get("title", "")
             
             context_parts.append(
-                f"[Source {i} - {source}, page/location: {pages}]\n{doc.page_content}"
+                f"### Reference Context #{i} (File: {source}, Location: {pages})\n{doc.page_content}"
             )
             
             # Format sources for UI return
@@ -210,7 +210,7 @@ Answer the user's question clearly, thoroughly, and objectively based ONLY on th
 
 Rules:
 1. Use ONLY the provided context. If information is not in the context, do not make things up.
-2. Do NOT include inline citations or bracketed sources (like [Source 1] or [Page 1]) in your text.
+2. Do NOT include any inline citations, bracketed sources, or references (like [Source 1], [Page 1], etc.) in your generated text. Write a natural and readable response.
 3. If the answer is not present in the context, reply exactly:
 Information not found in notes.
 
