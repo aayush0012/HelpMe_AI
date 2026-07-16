@@ -193,12 +193,12 @@ Do not include any other text, explanation, or punctuation.
         prompt = f"""
 You are an academic study assistant.
 
-Answer the user's question clearly, thoroughly, and objectively based ONLY on the provided context below.
+Answer the user's question clearly, thoroughly, and objectively using the provided context.
 
 Rules:
-1. Use ONLY the provided context. If information is not in the context, do not make things up.
+1. Ground your answer in the facts and information present in the context. If the question asks you to analyze, summarize, critique, or evaluate the context (like a resume or study notes), do so using the context details.
 2. Do NOT include any inline citations, bracketed sources, or references (like [Source 1], [Page 1], etc.) in your generated text. Write a natural and readable response.
-3. If the answer is not present in the context, reply exactly:
+3. If the context does not contain relevant information to answer the question at all, respond exactly:
 Information not found in notes.
 
 CONTEXT:
