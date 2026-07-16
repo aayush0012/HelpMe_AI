@@ -15,6 +15,7 @@ from document_ingestion import (
     create_vectorstore,
 )
 from hybrid_retrieval import hybrid_retrieve
+from agent import StudyAgent
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from dotenv import load_dotenv
@@ -185,97 +186,13 @@ async def chat(
         embedding_function=get_embeddings(),
     )
 
-    results_with_scores = hybrid_retrieve(
-        vectorstore,
-        question,
-        k=TOP_K,
-    )
-
-    print("=" * 80)
-    print("Retrieved Chunks")
-    print("=" * 80)
-
-    for i, (doc, score) in enumerate(results_with_scores, start=1):
-        print(f"\nChunk {i}")
-        print(f"Distance: {score:.4f}")
-        print("-" * 40)
-        content_to_print = doc.page_content[:300]
-        try:
-            print(content_to_print)
-        except UnicodeEncodeError:
-            print(content_to_print.encode('ascii', errors='replace').decode('ascii'))
-        print("-" * 40)
-
-    if not results_with_scores:
-        return {
-            "answer": "Information not found in notes.",
-            "sources": [],
-        }
-
-    context_parts = []
-    sources = []
-    seen_pages = set()
-
-    for i, (doc, score) in enumerate(results_with_scores, start=1):
-        source = doc.metadata.get("source", "unknown")
-        pages = doc.metadata.get("pages", "unknown")
-
-        context_parts.append(
-            f"[Source {i} - {source}, page(s) {pages}]\n{doc.page_content}"
-        )
-
-        if pages not in seen_pages:
-            seen_pages.add(pages)
-            sources.append(
-                {
-                    "source": source,
-                    "pages": pages,
-                    "distance": round(float(score), 4),
-                }
-            )
-
-    context = "\n\n".join(context_parts)
-
-    prompt = f"""
-You are an academic assistant.
-
-Answer ONLY using the information provided below.
-
-Rules:
-
-1. Use ONLY the provided information.
-2. Do NOT use outside knowledge.
-3. If the answer exists, answer it clearly.
-4. Do NOT include any inline source citations or bracketed references (like [Source 1] or [Page 1]) in your text.
-5. If the answer is not present, reply exactly:
-
-Information not found in notes.
-
-CONTEXT:
-
-{context}
-
-QUESTION:
-
-{question}
-
-ANSWER:
-"""
-
-    print("=" * 80)
-    print("Prompt Sent To LLM")
-    print("=" * 80)
-    try:
-        print(prompt)
-    except UnicodeEncodeError:
-        print(prompt.encode('ascii', errors='replace').decode('ascii'))
-    print("=" * 80)
-
-    response = get_llm().invoke(prompt)
+    agent = StudyAgent(vectorstore=vectorstore, llm=get_llm())
+    result = agent.invoke(question)
 
     return {
-        "answer": response.content,
-        "sources": sources,
+        "answer": result["answer"],
+        "sources": result["sources"],
+        "steps": result["steps"]
     }
 
 if os.path.exists(frontend_dist_path):

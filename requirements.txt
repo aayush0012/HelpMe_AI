@@ -17,3 +17,5 @@ pydantic
 typing-extensions
 pymupdf
 rank-bm25
+langgraph
+duckduckgo-search

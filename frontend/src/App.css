@@ -305,6 +305,20 @@ body {
   background: rgba(56, 189, 248, 0.15);
 }
 
+.web-source-pill {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.15);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.web-source-pill:hover {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
 .bottom-dock {
   padding: 16px 20px;
   background: #0a0b0d;

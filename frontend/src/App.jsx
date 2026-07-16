@@ -225,15 +225,33 @@ function App() {
                 {msg.sources && msg.sources.length > 0 && (
                   <div className="sources-wrapper">
                     <div className="sources-list">
-                      {msg.sources.map((src, idx) => (
-                        <span
-                          key={idx}
-                          className="source-pill"
-                          title={`Similarity Score: ${src.distance}`}
-                        >
-                          Page {src.pages}
-                        </span>
-                      ))}
+                      {msg.sources.map((src, idx) => {
+                        if (src.pages === "web") {
+                          return (
+                            <a
+                              key={idx}
+                              href={src.source}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="source-pill web-source-pill"
+                              title={src.source}
+                              style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                            >
+                              🌐 {src.title || "Web Link"}
+                            </a>
+                          );
+                        }
+                        return (
+                          <span
+                            key={idx}
+                            className="source-pill"
+                            title={`Document: ${src.source}`}
+                            style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
+                          >
+                            📄 Page {src.pages}
+                          </span>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
