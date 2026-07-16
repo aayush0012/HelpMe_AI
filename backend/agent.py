@@ -6,7 +6,6 @@ from langchain_core.documents import Document
 from langgraph.graph import StateGraph, START, END
 from hybrid_retrieval import hybrid_retrieve
 
-# Define State
 class AgentState(TypedDict):
     question: str
     documents: List[Document]
@@ -24,17 +23,14 @@ class StudyAgent:
     def _build_graph(self):
         workflow = StateGraph(AgentState)
 
-        # Add Nodes
         workflow.add_node("retrieve", self.node_retrieve)
         workflow.add_node("grade_documents", self.node_grade_documents)
         workflow.add_node("web_search", self.node_web_search)
         workflow.add_node("generate", self.node_generate)
 
-        # Define Edges
         workflow.add_edge(START, "retrieve")
         workflow.add_edge("retrieve", "grade_documents")
         
-        # Decide next step after grading
         workflow.add_conditional_edges(
             "grade_documents",
             self.decide_next_step,
@@ -46,7 +42,6 @@ class StudyAgent:
         
         workflow.add_edge("web_search", "generate")
 
-        # Decide if final generation has hallucinations
         workflow.add_conditional_edges(
             "generate",
             self.grade_generation,
@@ -59,12 +54,9 @@ class StudyAgent:
 
         return workflow.compile()
 
-    # --- Node Implementations ---
-
     def node_retrieve(self, state: AgentState) -> Dict[str, Any]:
         print("\n--- AGENT: RETRIEVING DOCUMENTS ---")
         question = state["question"]
-        # Use our high-precision Hybrid Retrieval (Dense + BM25 + RRF)
         docs_with_scores = hybrid_retrieve(self.vectorstore, question, k=5)
         docs = [doc for doc, _ in docs_with_scores]
         
@@ -90,7 +82,6 @@ class StudyAgent:
                 "steps": steps
             }
 
-        # Combine document contents for a single grading prompt to save API latency
         context = "\n\n".join([f"Document {i}:\n{d.page_content}" for i, d in enumerate(docs, 1)])
         
         prompt = f"""
@@ -135,7 +126,6 @@ Do not include any other text, explanation, or punctuation.
         steps = state.get("steps", [])
         steps.append("Performed web search fallback for supplementary context")
 
-        # Clean the query for better search matches
         search_query = re.sub(r"^(who (was|is)|what (is|are|was)|how to|explain|tell me about|can you)\s+", "", question, flags=re.IGNORECASE)
         search_query = search_query.strip("?. ")
         print(f"Original query: '{question}' -> Cleaned search query: '{search_query}'")
@@ -145,7 +135,6 @@ Do not include any other text, explanation, or punctuation.
             with DDGS() as ddgs:
                 results = list(ddgs.text(search_query, max_results=3))
                 
-                # If auto backend fails, try html backend
                 if not results:
                     results = list(ddgs.text(search_query, backend="html", max_results=3))
                 
@@ -164,7 +153,6 @@ Do not include any other text, explanation, or punctuation.
         except Exception as e:
             print(f"Error calling DuckDuckGo Search: {e}")
 
-        # Keep original docs but append the new web docs
         current_docs = state.get("documents", [])
         return {
             "documents": current_docs + web_docs,
@@ -191,7 +179,6 @@ Do not include any other text, explanation, or punctuation.
                 f"### Reference Context #{i} (File: {source}, Location: {pages})\n{doc.page_content}"
             )
             
-            # Format sources for UI return
             source_key = f"{source}::{pages}"
             if source_key not in seen_keys:
                 seen_keys.add(source_key)
@@ -235,8 +222,6 @@ ANSWER:
             "steps": steps
         }
 
-    # --- Routing / Conditional Edge Implementations ---
-
     def decide_next_step(self, state: AgentState) -> str:
         if state.get("web_search_required", False):
             return "web_search"
@@ -248,7 +233,6 @@ ANSWER:
         docs = state["documents"]
         steps = state.get("steps", [])
 
-        # If answer is default "Information not found", no need to check hallucination
         if "information not found" in generation.lower() or "error generating" in generation.lower():
             return "max_attempts_reached"
 
@@ -272,7 +256,6 @@ Do not write any explanation, introduction, or punctuation.
             verdict = response.content.strip().lower()
             print(f"Hallucination Grader Verdict: {verdict}")
 
-            # Check if web search fallback has already run to avoid infinite loop
             has_web_search = any(d.metadata.get("pages") == "web" for d in docs)
 
             if "yes" in verdict:
@@ -292,10 +275,6 @@ Do not write any explanation, introduction, or punctuation.
             return "max_attempts_reached"
 
     def invoke(self, question: str) -> Dict[str, Any]:
-        """
-        Runs the compiled graph for the given question.
-        Returns a dictionary with: answer, sources, and agent steps.
-        """
         initial_state = {
             "question": question,
             "documents": [],

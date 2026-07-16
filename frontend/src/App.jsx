@@ -18,14 +18,12 @@ const renderBold = (text) => {
 const renderMarkdown = (text) => {
   if (!text) return null;
   
-  // Clean up inline citations like [Source 1], [Source 1, Source 2], etc.
   const cleanedText = text.replace(/\[Source\s+\d+(?:,\s*Source\s+\d+)*\]/gi, "");
 
   const lines = cleanedText.split("\n");
   return lines.map((line, idx) => {
     let content = line;
     
-    // Check if it's a heading
     if (content.startsWith("### ")) {
       return <h4 key={idx} style={{ marginTop: "10px", marginBottom: "6px", fontWeight: "700" }}>{renderBold(content.replace("### ", ""))}</h4>;
     }
@@ -33,7 +31,6 @@ const renderMarkdown = (text) => {
       return <h3 key={idx} style={{ marginTop: "12px", marginBottom: "8px", fontWeight: "700" }}>{renderBold(content.replace("## ", ""))}</h3>;
     }
     
-    // Check if it's a bullet point
     if (content.trim().startsWith("- ") || content.trim().startsWith("* ")) {
       const bulletText = content.replace(/^[\s]*[-*]\s+/, "");
       return (
@@ -43,7 +40,6 @@ const renderMarkdown = (text) => {
       );
     }
     
-    // Check if it's a numbered list
     if (/^\d+\.\s+/.test(content.trim())) {
       const listText = content.replace(/^[\s]*\d+\.\s+/, "");
       const numMatch = content.match(/^\s*(\d+)/);
@@ -56,7 +52,6 @@ const renderMarkdown = (text) => {
       );
     }
     
-    // Standard paragraph or empty line
     if (!content.trim()) {
       return <div key={idx} style={{ height: "6px" }} />;
     }
