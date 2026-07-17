@@ -26,25 +26,23 @@ load_dotenv()
 
 app = FastAPI()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
-PERSIST_DIR = os.path.join(BASE_DIR, "chroma_db")
-frontend_dist_path = os.path.abspath(os.path.join(BASE_DIR, "../frontend/dist"))
-SCORE_THRESHOLD = 1.0
-TOP_K = 5
+base_dir = os.path.dirname(os.path.abspath(__file__))
+upload_folder = os.path.join(base_dir, "uploads")
+persist_dir = os.path.join(base_dir, "chroma_db")
+frontend_dist_path = os.path.abspath(os.path.join(base_dir, "../frontend/dist"))
 
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(upload_folder, exist_ok=True)
 
-def get_session_paths(session_id: str, create=True):
+def get_session_paths(session_id, create=True):
     if not session_id or not re.match(r"^[a-zA-Z0-9_\-]+$", session_id):
-        return UPLOAD_FOLDER, PERSIST_DIR
+        return upload_folder, persist_dir
     
-    session_upload_folder = os.path.join(UPLOAD_FOLDER, session_id)
-    session_persist_dir = os.path.join(PERSIST_DIR, session_id)
+    session_upload = os.path.join(upload_folder, session_id)
+    session_persist = os.path.join(persist_dir, session_id)
     if create:
-        os.makedirs(session_upload_folder, exist_ok=True)
-        os.makedirs(session_persist_dir, exist_ok=True)
-    return session_upload_folder, session_persist_dir
+        os.makedirs(session_upload, exist_ok=True)
+        os.makedirs(session_persist, exist_ok=True)
+    return session_upload, session_persist
 
 allowed_origins = [
     "http://localhost:5173",
@@ -55,13 +53,16 @@ allowed_origins = [
 ]
 cors_env = os.getenv("CORS_ALLOWED_ORIGINS")
 if cors_env:
-    if cors_env.strip() == "*":
+    cleaned_cors = cors_env.strip()
+    if cleaned_cors == "*":
         allowed_origins = ["*"]
     else:
         allowed_origins = []
-        for origin in cors_env.split(","):
-            if origin.strip():
-                allowed_origins.append(origin.strip())
+        parts = cors_env.split(",")
+        for i in range(len(parts)):
+            item = parts[i].strip()
+            if item:
+                allowed_origins.append(item)
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,10 +79,11 @@ def get_llm():
             status_code=500,
             detail="GROQ_API_KEY environment variable is not set. Please configure it in your settings."
         )
-    return ChatGroq(
+    llm = ChatGroq(
         model="llama-3.3-70b-versatile",
         api_key=api_key,
     )
+    return llm
 
 def get_embeddings():
     hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
@@ -90,10 +92,11 @@ def get_embeddings():
             status_code=500,
             detail="HUGGINGFACEHUB_API_TOKEN or HF_TOKEN environment variable is not set. Please configure it in your settings."
         )
-    return HuggingFaceEndpointEmbeddings(
+    embeds = HuggingFaceEndpointEmbeddings(
         model="sentence-transformers/all-MiniLM-L6-v2",
         huggingfacehub_api_token=hf_token
     )
+    return embeds
 
 class ChatRequest(BaseModel):
     question: str
@@ -108,54 +111,59 @@ def home():
 @app.post("/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
-    session_id: str = Query(None, description="Unique session ID for client isolation")
+    session_id: str = Query(None)
 ):
     try:
-        print(f"1 Upload started (session: {session_id})")
-        if not file.filename.lower().endswith(".pdf"):
+        print("Upload started (session: " + str(session_id) + ")")
+        filename = file.filename
+        lower_name = filename.lower()
+        if not lower_name.endswith(".pdf"):
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
-        safe_filename = os.path.basename(file.filename)
+        safe_filename = os.path.basename(filename)
         session_upload_folder, session_persist_dir = get_session_paths(session_id)
 
         if os.path.exists(session_persist_dir):
             try:
                 import chromadb
                 client = chromadb.PersistentClient(path=session_persist_dir)
-                for col in client.list_collections():
+                collections = client.list_collections()
+                for i in range(len(collections)):
+                    col = collections[i]
                     client.delete_collection(col.name)
             except Exception as e:
-                print(f"Error resetting database collections for session {session_id}: {e}")
+                print(e)
 
-        print("2 Saving file")
+        print("Saving file")
         file_path = os.path.join(session_upload_folder, safe_filename)
 
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        print("3 Partitioning PDF")
+        print("Partitioning PDF")
         elements = partition_document(file_path)
 
-        print("4 Chunking elements")
+        print("Chunking elements")
         chunks = chunk_document(elements)
 
-        print("5 Processing chunks")
+        print("Processing chunks")
         processed_documents = process_chunks(chunks, source_name=safe_filename)
 
-        if not processed_documents:
+        if len(processed_documents) == 0:
             raise HTTPException(
                 status_code=422,
                 detail="No usable content could be extracted from this PDF",
             )
 
-        print("6 Creating vectorstore")
+        print("Creating vectorstore")
         create_vectorstore(processed_documents, persist_directory=session_persist_dir)
 
-        print("7 Done")
-        return {
+        print("Done")
+        res = {
             "message": "PDF processed successfully",
-            "chunks_indexed": len(processed_documents),
+            "chunks_indexed": len(processed_documents)
         }
+        return res
 
     except HTTPException:
         raise
@@ -165,8 +173,8 @@ async def upload_pdf(
 
 @app.post("/chat")
 async def chat(
-    question: str = Query(..., description="The question to ask"),
-    session_id: str = Query(None, description="Unique session ID for client isolation")
+    question: str = Query(...),
+    session_id: str = Query(None)
 ):
     question = question.strip()
     if not question:
@@ -175,7 +183,7 @@ async def chat(
             detail="Question cannot be empty",
         )
 
-    _, session_persist_dir = get_session_paths(session_id, create=False)
+    session_upload_folder, session_persist_dir = get_session_paths(session_id, create=False)
 
     if not os.path.exists(session_persist_dir) or not os.listdir(session_persist_dir):
         raise HTTPException(
@@ -191,14 +199,16 @@ async def chat(
     agent = StudyAgent(vectorstore=vectorstore, llm=get_llm())
     result = agent.invoke(question)
 
-    return {
+    res = {
         "answer": result["answer"],
         "sources": result["sources"],
         "steps": result["steps"]
     }
+    return res
 
 if os.path.exists(frontend_dist_path):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist_path, "assets")), name="assets")
+    assets_path = os.path.join(frontend_dist_path, "assets")
+    app.mount("/assets", StaticFiles(directory=assets_path), name="assets")
 
     @app.get("/{catchall:path}")
     async def serve_frontend(catchall: str):

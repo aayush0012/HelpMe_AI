@@ -58,8 +58,12 @@ class StudyAgent:
         print("\n--- AGENT: RETRIEVING DOCUMENTS ---")
         question = state["question"]
         docs_with_scores = hybrid_retrieve(self.vectorstore, question, k=5)
-        docs = [doc for doc, _ in docs_with_scores]
         
+        docs = []
+        for item in docs_with_scores:
+            doc = item[0]
+            docs.append(doc)
+            
         steps = state.get("steps", [])
         steps.append("Retrieved chunks using Hybrid Retrieval (Vector + BM25)")
 
@@ -82,25 +86,25 @@ class StudyAgent:
                 "steps": steps
             }
 
-        context = "\n\n".join([f"Document {i}:\n{d.page_content}" for i, d in enumerate(docs, 1)])
+        parts = []
+        for i in range(len(docs)):
+            num = i + 1
+            doc = docs[i]
+            part = "Document " + str(num) + ":\n" + doc.page_content
+            parts.append(part)
+        context = "\n\n".join(parts)
         
-        prompt = f"""
-You are an academic grader evaluating if the provided document context is relevant to the question.
-If the question is asking to analyze, summarize, evaluate, or critique the document context itself (like a resume, essay, or study notes), the context is highly relevant.
+        prompt = "You are an academic grader evaluating if the provided document context is relevant to the question.\n"
+        prompt += "If the question is asking to analyze, summarize, evaluate, or critique the document context itself (like a resume, essay, or study notes), the context is highly relevant.\n\n"
+        prompt += "CONTEXT:\n" + context + "\n\n"
+        prompt += "QUESTION:\n" + question + "\n\n"
+        prompt += "Is this CONTEXT relevant to the QUESTION? Respond with exactly one word: 'yes' or 'no'.\n"
+        prompt += "Do not include any other text, explanation, or punctuation.\n"
 
-CONTEXT:
-{context}
-
-QUESTION:
-{question}
-
-Is this CONTEXT relevant to the QUESTION? Respond with exactly one word: 'yes' or 'no'.
-Do not include any other text, explanation, or punctuation.
-"""
         try:
             response = self.llm.invoke(prompt)
             verdict = response.content.strip().lower()
-            print(f"Document Relevance Verdict: {verdict}")
+            print("Document Relevance Verdict: " + verdict)
             
             if "yes" in verdict:
                 return {
@@ -114,7 +118,7 @@ Do not include any other text, explanation, or punctuation.
                     "steps": steps
                 }
         except Exception as e:
-            print(f"Error grading documents: {e}. Defaulting to generate.")
+            print(e)
             return {
                 "web_search_required": False,
                 "steps": steps
@@ -128,7 +132,7 @@ Do not include any other text, explanation, or punctuation.
 
         search_query = re.sub(r"^(who (was|is)|what (is|are|was)|how to|explain|tell me about|can you)\s+", "", question, flags=re.IGNORECASE)
         search_query = search_query.strip("?. ")
-        print(f"Original query: '{question}' -> Cleaned search query: '{search_query}'")
+        print("Original query: '" + question + "' -> Cleaned search query: '" + search_query + "'")
 
         web_docs = []
         try:
@@ -139,19 +143,22 @@ Do not include any other text, explanation, or punctuation.
                     results = list(ddgs.text(search_query, backend="html", max_results=3))
                 
                 for r in results:
-                    web_docs.append(
-                        Document(
-                            page_content=r.get("body", ""),
-                            metadata={
-                                "source": r.get("href", "web"),
-                                "pages": "web",
-                                "title": r.get("title", "Web Source")
-                            }
-                        )
+                    body = r.get("body", "")
+                    href = r.get("href", "web")
+                    title = r.get("title", "Web Source")
+                    
+                    doc = Document(
+                        page_content=body,
+                        metadata={
+                            "source": href,
+                            "pages": "web",
+                            "title": title
+                        }
                     )
-            print(f"Web search completed successfully. Found {len(web_docs)} web snippets.")
+                    web_docs.append(doc)
+            print("Web search completed successfully. Found " + str(len(web_docs)) + " web snippets.")
         except Exception as e:
-            print(f"Error calling DuckDuckGo Search: {e}")
+            print(e)
 
         current_docs = state.get("documents", [])
         return {
@@ -166,54 +173,58 @@ Do not include any other text, explanation, or punctuation.
         steps = state.get("steps", [])
         steps.append("Generating final response with context")
 
-        context_parts = []
+        parts = []
         sources = []
-        seen_keys = set()
+        seen = []
 
-        for i, doc in enumerate(docs, 1):
-            source = doc.metadata.get("source", "unknown")
-            pages = doc.metadata.get("pages", "unknown")
-            title = doc.metadata.get("title", "")
+        for i in range(len(docs)):
+            num = i + 1
+            doc = docs[i]
+            meta = doc.metadata
             
-            context_parts.append(
-                f"### Reference Context #{i} (File: {source}, Location: {pages})\n{doc.page_content}"
-            )
-            
-            source_key = f"{source}::{pages}"
-            if source_key not in seen_keys:
-                seen_keys.add(source_key)
-                sources.append({
+            source = meta.get("source")
+            if not source:
+                source = "unknown"
+                
+            pages = meta.get("pages")
+            if not pages:
+                pages = "unknown"
+                
+            title = meta.get("title")
+            if not title:
+                title = ""
+
+            part = "### Reference Context #" + str(num) + " (File: " + str(source) + ", Location: " + str(pages) + ")\n" + doc.page_content
+            parts.append(part)
+
+            key = str(source) + "::" + str(pages)
+            if key not in seen:
+                seen.append(key)
+                item = {
                     "source": source,
                     "pages": pages,
                     "title": title
-                })
+                }
+                sources.append(item)
 
-        context = "\n\n".join(context_parts)
+        context = "\n\n".join(parts)
 
-        prompt = f"""
-You are an academic study assistant.
+        prompt = "You are an academic study assistant.\n\n"
+        prompt += "Answer the user's question clearly, thoroughly, and objectively using the provided context.\n\n"
+        prompt += "Rules:\n"
+        prompt += "1. Ground your answer in the facts and information present in the context. If the question asks you to analyze, summarize, critique, or evaluate the context (like a resume or study notes), do so using the context details.\n"
+        prompt += "2. Do NOT include any inline citations, bracketed sources, or references in your generated text. Write a natural and readable response.\n"
+        prompt += "3. If the context does not contain relevant information to answer the question at all, respond exactly:\n"
+        prompt += "Information not found in notes.\n\n"
+        prompt += "CONTEXT:\n" + context + "\n\n"
+        prompt += "QUESTION:\n" + question + "\n\n"
+        prompt += "ANSWER:\n"
 
-Answer the user's question clearly, thoroughly, and objectively using the provided context.
-
-Rules:
-1. Ground your answer in the facts and information present in the context. If the question asks you to analyze, summarize, critique, or evaluate the context (like a resume or study notes), do so using the context details.
-2. Do NOT include any inline citations, bracketed sources, or references (like [Source 1], [Page 1], etc.) in your generated text. Write a natural and readable response.
-3. If the context does not contain relevant information to answer the question at all, respond exactly:
-Information not found in notes.
-
-CONTEXT:
-{context}
-
-QUESTION:
-{question}
-
-ANSWER:
-"""
         try:
             response = self.llm.invoke(prompt)
             generation = response.content.strip()
         except Exception as e:
-            print(f"Generation failed: {e}")
+            print(e)
             generation = "Error generating answer."
 
         return {
@@ -236,34 +247,35 @@ ANSWER:
         if "information not found" in generation.lower() or "error generating" in generation.lower():
             return "max_attempts_reached"
 
-        context = "\n\n".join([d.page_content for d in docs])
+        parts = []
+        for doc in docs:
+            parts.append(doc.page_content)
+        context = "\n\n".join(parts)
         
-        prompt = f"""
-You are an academic evaluator checking for hallucinations and fact conflicts.
+        prompt = "You are an academic evaluator checking for hallucinations and fact conflicts.\n\n"
+        prompt += "SUPPORTING CONTEXT:\n" + context + "\n\n"
+        prompt += "GENERATED ANSWER:\n" + generation + "\n\n"
+        prompt += "Is the GENERATED ANSWER consistent with and supported by the SUPPORTING CONTEXT?\n"
+        prompt += "Respond with 'yes' if the answer is grounded and does not fabricate fake facts.\n"
+        prompt += "Respond with 'no' if the answer contains fabricated facts or directly contradicts the context.\n"
+        prompt += "Do not write any explanation, introduction, or punctuation.\n"
 
-SUPPORTING CONTEXT:
-{context}
-
-GENERATED ANSWER:
-{generation}
-
-Is the GENERATED ANSWER consistent with and supported by the SUPPORTING CONTEXT?
-Respond with 'yes' if the answer is grounded and does not fabricate fake facts (like claiming skills, achievements, or titles not in the context).
-Respond with 'no' if the answer contains fabricated facts or directly contradicts the context.
-Do not write any explanation, introduction, or punctuation.
-"""
         try:
             response = self.llm.invoke(prompt)
             verdict = response.content.strip().lower()
-            print(f"Hallucination Grader Verdict: {verdict}")
+            print("Hallucination Grader Verdict: " + verdict)
 
-            has_web_search = any(d.metadata.get("pages") == "web" for d in docs)
+            has_web = False
+            for doc in docs:
+                pages = doc.metadata.get("pages")
+                if pages == "web":
+                    has_web = True
 
             if "yes" in verdict:
                 steps.append("Fact check passed: Answer is fully grounded in context.")
                 return "grounded"
             else:
-                if not has_web_search:
+                if not has_web:
                     print("Generation contains potential hallucinations. Forcing Web Search fallback.")
                     steps.append("Fact check failed: Answer contained ungrounded claims. Rerouting to Web Search.")
                     return "hallucinating_fallback"
@@ -272,7 +284,7 @@ Do not write any explanation, introduction, or punctuation.
                     steps.append("Fact check warning: Some claims might not be fully grounded, but search fallbacks exhausted.")
                     return "max_attempts_reached"
         except Exception as e:
-            print(f"Error grading generation: {e}")
+            print(e)
             return "max_attempts_reached"
 
     def invoke(self, question: str) -> Dict[str, Any]:

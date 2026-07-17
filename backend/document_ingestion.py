@@ -14,24 +14,21 @@ from langchain_core.messages import HumanMessage
 
 load_dotenv()
 
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PERSIST_DIR = os.path.join(BASE_DIR, "chroma_db")
-EMBED_BATCH_SIZE = 100
+chunk_size_val = 1000
+chunk_overlap_val = 200
 
-def run_cloud_ocr(file_path: str):
+def run_cloud_ocr(file_path):
     print("Opening PDF with PyMuPDF for cloud transcription...")
     try:
         doc = fitz.open(file_path)
     except Exception as e:
-        print(f"Failed to open PDF with PyMuPDF: {e}")
+        print(e)
         return []
 
     ocr_elements = []
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
-        print("Warning: GROQ_API_KEY is not set. Cloud OCR will be skipped.")
+        print("Warning: GROQ_API_KEY is not set.")
         return []
 
     try:
@@ -41,11 +38,13 @@ def run_cloud_ocr(file_path: str):
             temperature=0
         )
     except Exception as e:
-        print(f"Failed to initialize ChatGroq Vision: {e}")
+        print(e)
         return []
 
     for page_num in range(len(doc)):
-        print(f"  Running OCR transcription on page {page_num + 1}/{len(doc)}...")
+        num = page_num + 1
+        total = len(doc)
+        print("Running OCR transcription on page " + str(num) + "/" + str(total) + "...")
         try:
             page = doc[page_num]
             pix = page.get_pixmap(dpi=150)
@@ -62,7 +61,7 @@ def run_cloud_ocr(file_path: str):
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/png;base64,{base64_image}"
+                            "url": "data:image/png;base64," + base64_image
                         }
                     }
                 ]
@@ -81,58 +80,64 @@ def run_cloud_ocr(file_path: str):
                 )
                 ocr_elements.append(doc_element)
         except Exception as e:
-            print(f"  Error transcribing page {page_num + 1}: {e}")
+            print(e)
 
     return ocr_elements
 
-def partition_document(file_path: str):
+def partition_document(file_path):
     if not os.path.exists(file_path):
-        raise FileNotFoundError(f"PDF not found at: {file_path}")
+        raise FileNotFoundError("PDF not found at: " + file_path)
 
-    print(f"Loading '{file_path}' with PyPDFLoader...")
+    print("Loading file: " + file_path)
     start = time.time()
     try:
         loader = PyPDFLoader(file_path)
         elements = loader.load()
     except Exception as e:
-        raise RuntimeError(f"Failed to load PDF '{file_path}': {e}") from e
+        raise RuntimeError("Failed to load PDF: " + str(e))
 
     total_chars = 0
-    for doc in elements:
-        total_chars += len(doc.page_content.strip())
+    for i in range(len(elements)):
+        doc = elements[i]
+        txt = doc.page_content
+        cleaned = txt.strip()
+        total_chars = total_chars + len(cleaned)
     
-    print(f"Standard load complete. Total characters: {total_chars}")
+    print("Standard load complete. Total characters: " + str(total_chars))
 
     if total_chars < 150:
         print("Standard PDF loader extracted minimal text. Falling back to Cloud Vision OCR...")
         ocr_elements = run_cloud_ocr(file_path)
-        if ocr_elements:
+        if len(ocr_elements) > 0:
             elements = ocr_elements
-            print(f"Cloud OCR complete. Pages transcribed: {len(elements)}")
+            print("Cloud OCR complete. Pages transcribed: " + str(len(elements)))
         else:
             print("Cloud OCR returned no pages. Using standard loader output.")
 
     elapsed = time.time() - start
-    print(f"Ingestion load completed in {elapsed:.1f}s")
+    print("Ingestion load completed in " + str(round(elapsed, 1)) + "s")
     return elements
 
 def chunk_document(elements):
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP
+        chunk_size=chunk_size_val,
+        chunk_overlap=chunk_overlap_val
     )
     chunks = text_splitter.split_documents(elements)
     return chunks
 
 def process_chunks(chunks, source_name):
     documents = []
-    print("Total chunks:", len(chunks))
+    print("Total chunks: " + str(len(chunks)))
 
-    for i, chunk in enumerate(chunks):
+    for i in range(len(chunks)):
+        chunk = chunks[i]
         page = chunk.metadata.get("page", 0) + 1
         
-        if len(chunk.page_content.strip()) < 10:
-            print(f"Skipping empty chunk {i}")
+        txt = chunk.page_content
+        cleaned = txt.strip()
+        if len(cleaned) < 10:
+            print("Skipping empty chunk " + str(i))
             continue
 
         doc = Document(
@@ -145,17 +150,21 @@ def process_chunks(chunks, source_name):
         )
         documents.append(doc)
 
-    print("Processed docs:", len(documents))
+    print("Processed docs: " + str(len(documents)))
     return documents
 
-def make_doc_id(doc: Document) -> str:
-    key = f"{doc.metadata.get('source')}::chunk_{doc.metadata.get('chunk_index')}::{doc.page_content}"
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+def make_doc_id(doc):
+    source = doc.metadata.get("source")
+    idx = doc.metadata.get("chunk_index")
+    txt = doc.page_content
+    key = str(source) + "::chunk_" + str(idx) + "::" + txt
+    hashed = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return hashed
 
 def create_vectorstore(documents, persist_directory=None):
     hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
     if not hf_token:
-        print("Warning: HUGGINGFACEHUB_API_TOKEN is not set. Cloud embedding calls might fail.")
+        print("Warning: HUGGINGFACEHUB_API_TOKEN is not set.")
 
     embeddings = HuggingFaceEndpointEmbeddings(
         model="sentence-transformers/all-MiniLM-L6-v2",
@@ -163,7 +172,8 @@ def create_vectorstore(documents, persist_directory=None):
     )
 
     if persist_directory is None:
-        persist_directory = PERSIST_DIR
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        persist_directory = os.path.join(base_dir, "chroma_db")
 
     vectorstore = Chroma(
         persist_directory=persist_directory,
@@ -171,18 +181,29 @@ def create_vectorstore(documents, persist_directory=None):
     )
 
     ids = []
-    for doc in documents:
-        ids.append(make_doc_id(doc))
+    for i in range(len(documents)):
+        doc = documents[i]
+        doc_id = make_doc_id(doc)
+        ids.append(doc_id)
 
-    print(f"Inserting {len(documents)} documents in batches of {EMBED_BATCH_SIZE}...")
+    total = len(documents)
+    batch_size = 100
+    print("Inserting " + str(total) + " documents in batches of " + str(batch_size) + "...")
 
-    for start in range(0, len(documents), EMBED_BATCH_SIZE):
-        end = start + EMBED_BATCH_SIZE
-        batch_docs = documents[start:end]
-        batch_ids = ids[start:end]
+    for i in range(0, total, batch_size):
+        start = i
+        end = i + batch_size
+        if end > total:
+            end = total
+            
+        batch_docs = []
+        batch_ids = []
+        for j in range(start, end):
+            batch_docs.append(documents[j])
+            batch_ids.append(ids[j])
 
         vectorstore.add_documents(documents=batch_docs, ids=batch_ids)
-        print(f"  Inserted {min(end, len(documents))}/{len(documents)}")
+        print("  Inserted " + str(end) + "/" + str(total))
 
     return vectorstore
 
@@ -200,16 +221,16 @@ if __name__ == "__main__":
         print("Processing chunks...")
         processed_documents = process_chunks(chunks, source_name)
 
-        if not processed_documents:
-            print("No documents produced from this PDF — nothing to ingest.")
+        if len(processed_documents) == 0:
+            print("No documents produced from this PDF.")
         else:
             print("Generating embeddings and storing vectors...")
             vectorstore = create_vectorstore(processed_documents)
             print("Ingestion completed")
 
     except FileNotFoundError as e:
-        print(f"File error: {e}")
+        print(e)
     except RuntimeError as e:
-        print(f"Processing error: {e}")
+        print(e)
     except Exception as e:
-        print(f"Unexpected error during ingestion: {e}")
+        print(e)

@@ -57,6 +57,99 @@ Rag_based_Project-/
 
 ---
 
+## 📊 Pipeline Flowcharts
+
+> [!NOTE]
+> I am still actively learning **LangGraph** to build the agentic state machine, so this part of the project is a work in progress as I continue my learning journey!
+
+### 1. Document Ingestion Pipeline
+
+```text
+[ START: User Uploads PDF ]
+          │
+          ▼
+[ main.py: get_session_paths() ] ──► Creates safe user session folders
+          │
+          ▼
+[ document_ingestion.py: partition_document() ] ──► Opens PDF & reads characters
+          │
+          ├──► (If Text Characters >= 150) ──► Keep standard text
+          │
+          └──► (If Text Characters < 150) ──► Convert PDF to PNG images
+                                                     │
+                                                     ▼
+                                            [ Groq Vision OCR ] 
+                                            Reads images & extracts text
+          │
+          ▼
+[ document_ingestion.py: chunk_document() ] 
+Cuts text into 1000-character blocks (with 200 character overlap)
+          │
+          ▼
+[ document_ingestion.py: make_doc_id() ] 
+Generates unique IDs using SHA256 hashes to prevent duplicates
+          │
+          ▼
+[ document_ingestion.py: create_vectorstore() ] 
+Sends blocks in batches of 100 to HuggingFace to get number values (Embeddings)
+          │
+          ▼
+[ SQLite-based ChromaDB ] ──► Saves text + numbers into session folder
+          │
+          ▼
+[ END: Return Success Status to Frontend ]
+```
+
+### 2. Chat Retrieval & Agentic Pipeline
+
+```text
+[ START: User submits question ]
+          │
+          ▼
+[ main.py: Initialize ChromaDB for Session ]
+          │
+          ▼
+[ agent.py: node_retrieve ] (Still learning LangGraph state machines)
+          │
+          ▼
+[ hybrid_retrieval.py: hybrid_retrieve() ] 
+Runs parallel searches:
+  ├──► Vector Search (Chroma) ──► Semantic / Meaning Matches
+  └──► Keyword Search (BM25)  ──► Exact Word Matches
+          │
+          ▼
+[ Reciprocal Rank Fusion (RRF) ] ──► Fuses and ranks all matches
+          │
+          ▼
+[ agent.py: node_grade_documents ] 
+Ask LLM: "Is this retrieved information relevant to the question?"
+          │
+          ├─► (Verdicts is 'yes') ──────────────────────────────┐
+          │                                                     │
+          └─► (Verdict is 'no') ──► [ agent.py: node_web_search ] │
+                                    Queries DuckDuckGo Search   │
+                                    & appends web results       │
+                                              │                 │
+                                              ▼                 ▼
+                                    [ agent.py: node_generate ]
+                                    Llama 3.3 writes final response
+                                              │
+                                              ▼
+                                    [ agent.py: grade_generation ]
+                                    LLM checks for hallucinations
+                                              │
+                    ┌─────────────────────────┴────────────────────────┐
+                    ▼                                                  ▼
+          (Passed: Grounded)                                 (Failed: Hallucinated)
+                    │                                                  │
+                    ▼                                                  ▼
+[ END: Return answer & sources ]                        Check: Has Web Search run yet?
+                                                         ├──► (No) ──► Go to Web Search
+                                                         └──► (Yes) ──► Return best-effort
+```
+
+---
+
 ## 📋 Prerequisites
 
 Make sure you have the following installed on your machine:
