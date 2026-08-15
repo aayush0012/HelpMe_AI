@@ -25,7 +25,7 @@ def load_db():
 
 def retrieve_chunks(db, query, k=k_val):
     return hybrid_retrieve(db, query, k=k)
-
+## we can store all the formatted chunks inside a document after rrf 
 def build_context(results):
     parts = []
     for i in range(len(results)):

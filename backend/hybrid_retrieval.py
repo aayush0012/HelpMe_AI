@@ -34,7 +34,7 @@ def hybrid_retrieve(vectorstore, query: str, k: int = 5) -> list[tuple[Document,
         except Exception as e:
             print(f"Fallback dense search failed: {e}")
             return []
-
+   ## for dense we are still taking 2*k chunks  or 20 max of either of them
     dense_k = max(20, k * 2)
     try:
         dense_results = vectorstore.similarity_search_with_score(query, k=dense_k)
@@ -81,5 +81,4 @@ def hybrid_retrieve(vectorstore, query: str, k: int = 5) -> list[tuple[Document,
     for key in sorted_keys[:k]:
         fused_results.append((doc_map[key], rrf_scores[key]))
 
-    print(f"Hybrid retrieval finished: retrieved {len(dense_docs)} dense and {len(sparse_docs)} sparse docs. Combined into {len(fused_results)} top docs.")
     return fused_results

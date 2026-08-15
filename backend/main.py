@@ -79,11 +79,19 @@ def get_llm():
             status_code=500,
             detail="GROQ_API_KEY environment variable is not set. Please configure it in your settings."
         )
-    llm = ChatGroq(
+    primary_llm = ChatGroq(
         model="llama-3.3-70b-versatile",
         api_key=api_key,
     )
-    return llm
+    fallback_llm1 = ChatGroq(
+        model="llama-3.1-8b-instant",
+        api_key=api_key,
+    )
+    fallback_llm2 = ChatGroq(
+        model="mixtral-8x7b-32768",
+        api_key=api_key,
+    )
+    return primary_llm.with_fallbacks([fallback_llm1, fallback_llm2])
 
 def get_embeddings():
     hf_token = os.getenv("HUGGINGFACEHUB_API_TOKEN") or os.getenv("HF_TOKEN")
