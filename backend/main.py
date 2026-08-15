@@ -44,31 +44,10 @@ def get_session_paths(session_id, create=True):
         os.makedirs(session_persist, exist_ok=True)
     return session_upload, session_persist
 
-allowed_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-    "https://help-me-two-sigma.vercel.app",
-]
-cors_env = os.getenv("CORS_ALLOWED_ORIGINS")
-if cors_env:
-    cleaned_cors = cors_env.strip()
-    if cleaned_cors == "*":
-        allowed_origins = ["*"]
-    else:
-        allowed_origins = []
-        parts = cors_env.split(",")
-        for i in range(len(parts)):
-            item = parts[i].strip()
-            if item:
-                allowed_origins.append(item)
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if cors_env == "*" else allowed_origins,
-    allow_origin_regex=r".*",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
