@@ -107,7 +107,7 @@ def get_embeddings():
     return embeds
 
 class ChatRequest(BaseModel):
-    question: str
+    question: str | None = None
 
 @app.get("/")
 def home():
@@ -181,15 +181,22 @@ async def upload_pdf(
 
 @app.post("/chat")
 async def chat(
-    question: str = Query(...),
+    request: ChatRequest = None,
+    question: str = Query(None),
     session_id: str = Query(None)
 ):
-    question = question.strip()
-    if not question:
+    q_val = None
+    if request and request.question:
+        q_val = request.question
+    elif question:
+        q_val = question
+
+    if not q_val or not q_val.strip():
         raise HTTPException(
             status_code=400,
             detail="Question cannot be empty",
         )
+    question = q_val.strip()
 
     session_upload_folder, session_persist_dir = get_session_paths(session_id, create=False)
 
