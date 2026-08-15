@@ -4,10 +4,10 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import shutil
 import traceback
 import re
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from langchain_groq import ChatGroq
 from document_ingestion import (
@@ -51,6 +51,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    headers = {"Access-Control-Allow-Origin": "*"}
+    if exc.headers:
+        headers.update(exc.headers)
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers=headers,
+    )
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    traceback.print_exc()
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal Server Error: {str(exc)}"},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 def get_llm():
     api_key = os.getenv("GROQ_API_KEY")
@@ -165,41 +185,50 @@ async def chat(
     question: str = Query(None),
     session_id: str = Query(None)
 ):
-    q_val = None
-    if request and request.question:
-        q_val = request.question
-    elif question:
-        q_val = question
+    try:
+        q_val = None
+        if request and request.question:
+            q_val = request.question
+        elif question:
+            q_val = question
 
-    if not q_val or not q_val.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Question cannot be empty",
+        if not q_val or not q_val.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Question cannot be empty",
+            )
+        question = q_val.strip()
+
+        session_upload_folder, session_persist_dir = get_session_paths(session_id, create=False)
+
+        if not os.path.exists(session_persist_dir) or not os.listdir(session_persist_dir):
+            raise HTTPException(
+                status_code=400,
+                detail="No document has been ingested yet. Upload a PDF first.",
+            )
+
+        vectorstore = Chroma(
+            persist_directory=session_persist_dir,
+            embedding_function=get_embeddings(),
         )
-    question = q_val.strip()
 
-    session_upload_folder, session_persist_dir = get_session_paths(session_id, create=False)
+        agent = StudyAgent(vectorstore=vectorstore, llm=get_llm())
+        result = agent.invoke(question)
 
-    if not os.path.exists(session_persist_dir) or not os.listdir(session_persist_dir):
+        res = {
+            "answer": result.get("answer", "No response generated."),
+            "sources": result.get("sources", []),
+            "steps": result.get("steps", [])
+        }
+        return res
+    except HTTPException:
+        raise
+    except Exception as e:
+        traceback.print_exc()
         raise HTTPException(
-            status_code=400,
-            detail="No document has been ingested yet. Upload a PDF first.",
+            status_code=500,
+            detail=f"Chat processing error: {str(e)}"
         )
-
-    vectorstore = Chroma(
-        persist_directory=session_persist_dir,
-        embedding_function=get_embeddings(),
-    )
-
-    agent = StudyAgent(vectorstore=vectorstore, llm=get_llm())
-    result = agent.invoke(question)
-
-    res = {
-        "answer": result["answer"],
-        "sources": result["sources"],
-        "steps": result["steps"]
-    }
-    return res
 
 if os.path.exists(frontend_dist_path):
     assets_path = os.path.join(frontend_dist_path, "assets")
